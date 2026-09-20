@@ -26,7 +26,8 @@ create table if not exists public.collections (
   date date not null,
   amount numeric(10, 2) not null check (amount >= 0),
   staff_id uuid not null references public.users (id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_collections_date on public.collections (date);
@@ -43,14 +44,61 @@ create table if not exists public.expenses (
   expense_type text not null,
   amount numeric(10, 2) not null check (amount >= 0),
   staff_id uuid not null references public.users (id) on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_expenses_date on public.expenses (date);
 create index if not exists idx_expenses_bus on public.expenses (bus_number);
 
 -- ----------------------------------------------------------------------------
--- 4. Auto-create a public.users row whenever someone signs up via Supabase Auth
+-- Keep updated_at current whenever a collection/expense row is edited.
+-- ----------------------------------------------------------------------------
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_collections_updated_at on public.collections;
+create trigger set_collections_updated_at
+  before update on public.collections
+  for each row execute procedure public.set_updated_at();
+
+drop trigger if exists set_expenses_updated_at on public.expenses;
+create trigger set_expenses_updated_at
+  before update on public.expenses
+  for each row execute procedure public.set_updated_at();
+
+-- ----------------------------------------------------------------------------
+-- 4. Helper function used by RLS policies to check "is this caller an admin?"
+--    IMPORTANT: this must be SECURITY DEFINER. If an RLS policy on
+--    public.users queried public.users directly (e.g. via a plain
+--    `exists (select 1 from public.users where ...)`), Postgres would
+--    re-trigger RLS on that same inner query, which re-triggers the same
+--    policy again - infinite recursion, and Postgres returns a 500 error
+--    ("infinite recursion detected in policy") on every request. Marking
+--    this function SECURITY DEFINER makes its internal query run with the
+--    function owner's privileges (bypassing RLS), breaking the loop.
+-- ----------------------------------------------------------------------------
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.users where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 5. Auto-create a public.users row whenever someone signs up via Supabase Auth
 --    New users default to role = 'staff'. Promote an account to 'admin' by
 --    running: update public.users set role = 'admin' where email = '...';
 -- ----------------------------------------------------------------------------
@@ -88,14 +136,11 @@ create policy "Users can view their own profile"
   using (auth.uid() = id);
 
 -- Admins can read every profile (needed for the dashboard / user management).
+-- Uses the is_admin() helper (see section 4 above) instead of querying
+-- public.users directly, to avoid infinite RLS recursion.
 create policy "Admins can view all profiles"
   on public.users for select
-  using (
-    exists (
-      select 1 from public.users u
-      where u.id = auth.uid() and u.role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- --- collections table policies ---------------------------------------------
 
@@ -109,15 +154,21 @@ create policy "Staff can view their own collections"
   on public.collections for select
   using (auth.uid() = staff_id);
 
+-- Staff can edit their own collection entries (to fix mistakes).
+create policy "Staff can update their own collections"
+  on public.collections for update
+  using (auth.uid() = staff_id)
+  with check (auth.uid() = staff_id);
+
+-- Staff can delete their own collection entries.
+create policy "Staff can delete their own collections"
+  on public.collections for delete
+  using (auth.uid() = staff_id);
+
 -- Admins can view every collection row.
 create policy "Admins can view all collections"
   on public.collections for select
-  using (
-    exists (
-      select 1 from public.users u
-      where u.id = auth.uid() and u.role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- --- expenses table policies --------------------------------------------------
 
@@ -131,15 +182,21 @@ create policy "Staff can view their own expenses"
   on public.expenses for select
   using (auth.uid() = staff_id);
 
+-- Staff can edit their own expense entries (to fix mistakes).
+create policy "Staff can update their own expenses"
+  on public.expenses for update
+  using (auth.uid() = staff_id)
+  with check (auth.uid() = staff_id);
+
+-- Staff can delete their own expense entries.
+create policy "Staff can delete their own expenses"
+  on public.expenses for delete
+  using (auth.uid() = staff_id);
+
 -- Admins can view every expense row.
 create policy "Admins can view all expenses"
   on public.expenses for select
-  using (
-    exists (
-      select 1 from public.users u
-      where u.id = auth.uid() and u.role = 'admin'
-    )
-  );
+  using (public.is_admin());
 
 -- ============================================================================
 -- Done. Next steps:

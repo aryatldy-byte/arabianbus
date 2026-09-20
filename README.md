@@ -91,8 +91,23 @@ same two values again directly in Vercel in the next step.)
 Edit `lib/constants.js` → `BUS_NUMBERS` array. No schema change needed since
 `bus_number` is a free-text column.
 
+## Editing / Deleting Entries
+Staff can edit or delete their own collection/expense entries directly from
+`/staff` (each form has a "My Recent Collections"/"My Recent Expenses" list
+below it with Edit and Delete on every row). This is enforced at the database
+level too — RLS policies only allow a user to update/delete rows where they
+are the original `staff_id`, so one staff member can never alter another's
+entries, even by calling the API directly. Admins currently have read-only
+access to everything (by design, to preserve an audit trail) — they cannot
+edit or delete staff entries from the dashboard.
+
+If you set up your database **before** this feature was added, run
+`supabase/migration_edit_delete.sql` once in the SQL Editor to add the
+required columns and policies. Fresh installs already have this in
+`schema.sql`, so a new project doesn't need the migration file.
+
 ## Notes / Possible Extensions
 - Add a `users` management page for admins to promote/demote staff roles.
 - Add CSV/PDF export for the admin dashboard's filtered results.
 - Add monthly summary charts (e.g. with `recharts`).
-- Add edit/delete for staff's own recent entries (currently insert-only by design, to preserve an audit trail).
+- Let admins edit/delete any entry too, or restrict staff edits to a time window (e.g. same day only).

@@ -10,7 +10,7 @@ import { BUS_NUMBERS, EXPENSE_TYPES } from '../lib/constants';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-export default function ExpenseForm() {
+export default function ExpenseForm({ onSaved }) {
   const { user } = useAuth();
   const [busNumber, setBusNumber] = useState(BUS_NUMBERS[0]);
   const [date, setDate] = useState(todayISO());
@@ -43,6 +43,7 @@ export default function ExpenseForm() {
     } else {
       setStatus({ type: 'success', message: 'Expense saved successfully.' });
       setAmount('');
+      onSaved?.();
     }
   };
 

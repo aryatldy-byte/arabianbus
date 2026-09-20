@@ -11,7 +11,7 @@ import { BUS_NUMBERS } from '../lib/constants';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-export default function CollectionForm() {
+export default function CollectionForm({ onSaved }) {
   const { user } = useAuth();
   const [busNumber, setBusNumber] = useState(BUS_NUMBERS[0]);
   const [date, setDate] = useState(todayISO());
@@ -42,6 +42,7 @@ export default function CollectionForm() {
     } else {
       setStatus({ type: 'success', message: 'Collection saved successfully.' });
       setAmount('');
+      onSaved?.();
     }
   };
 
